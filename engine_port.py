@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+import shutil
+import subprocess
+from pathlib import Path
+import re
+from collections import Counter
+
+XENO_MOD = r"""(function(){'use strict';const adblockStyle=document.createElement('style');adblockStyle.innerHTML=`
+        #ad_300x250, #ad_728x90, #left_ad_160x600, #right_ad_160x600, #videoAdWrapper, .nitroAds, iframe[src*="xsolla"], iframe[src*="adscend"] {
+            display: none !important; pointer-events: none !important; width: 0 !important; height: 0 !important; opacity: 0 !important;
+        }
+    `;document.head.appendChild(adblockStyle);let mockNitro={createAd:()=>Promise.resolve(),addUserToken:()=>{},queue:{push:(args)=>{if(args&&args[2]&&typeof args[2]==='function')args[2]();}}};Object.defineProperty(window,'nitroAds',{get:()=>mockNitro,set:(v)=>{Object.assign(mockNitro,v)},configurable:!0});let mockCrazy={SDK:{ad:{requestAd:()=>{}},banner:{requestBanner:()=>{},requestResponsiveBanner:()=>{},clearBanner:()=>{}},game:{},user:{}}};Object.defineProperty(window,'CrazyGames',{get:()=>mockCrazy,set:(v)=>{Object.assign(mockCrazy,v)},configurable:!0});const origFetch=window.fetch;window.fetch=async function(...args){const reqUrl=typeof args[0]==='string'?args[0]:(args[0]&&args[0].url?args[0].url:'');if(reqUrl.includes('api.mope.io/users/me')||reqUrl.includes('rubicon')||reqUrl.includes('nitropay')||reqUrl.includes('ads-')||reqUrl.includes('id5')||reqUrl.includes('captify')||reqUrl.includes('pubads')){return new Response('{}',{status:200,headers:{'Content-Type':'application/json'}})}
+return origFetch.apply(this,args)};const origOpen=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){if(url.includes('api.mope.io/users/me')||url.includes('nitropay')||url.includes('rubiconproject')||url.includes('id5')||url.includes('captify')){Object.defineProperty(this,'send',{value:()=>{Object.defineProperty(this,'readyState',{value:4});Object.defineProperty(this,'status',{value:200});Object.defineProperty(this,'responseText',{value:'{}'});if(this.onload)this.onload();if(this.onreadystatechange)this.onreadystatechange();}})}
+return origOpen.apply(this,arguments)};const origScriptSrc=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');Object.defineProperty(HTMLScriptElement.prototype,'src',{set:function(val){if(typeof val==='string'&&(val.includes('nitropay')||val.includes('id5-api')||val.includes('captify')||val.includes('pubads')||val.includes('arcspan')||val.includes('rubicon'))){return}
+return origScriptSrc.set.call(this,val)},get:function(){return origScriptSrc.get.call(this)}});let $=(typeof Ro!=='undefined')?Ro:null;function getGame(){if(!$&&typeof Ro!=='undefined')$=Ro;return $}
+window.rvjDragonImg=new Image();window.rvjDragonImg.src='data:image/webp;base64,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';window.rvjDragonTex=null;const xeno={turnSpeedEnabled:!1,turnSpeed:120,turnStyle:'linear',zoomEnabled:!1,zoomLevel:1.5,_MIN_ZOOM:0.5,_MAX_ZOOM:3.0,_STEP:0.1,hideWorldEnabled:!1,hideWorldColor:'#000000',allDragonsEnabled:!1,perfModeEnabled:!1,skinChangerEnabled:!1,skinChangerSelected:'native',skinChangerChoices:{},aboveOthersEnabled:!1,belowOthersEnabled:!1,noTransparencyEnabled:!1,showWinsEnabled:!1,keyZoom:'z',keyTurnSpeed:'t',keyHidePanel:'h',keyHideWorld:'j',keyAllDragons:'k',keyPerfMode:'p',keySkinChanger:'',keyAboveOthers:'',keyBelowOthers:'',keyNoTransparency:'',keyShowWins:'v',};const XENO_DEFAULTS=Object.freeze({turnSpeedEnabled:!1,turnSpeed:120,turnStyle:'linear',zoomEnabled:!1,zoomLevel:1.5,hideWorldEnabled:!1,hideWorldColor:'#000000',allDragonsEnabled:!1,perfModeEnabled:!1,skinChangerEnabled:!1,skinChangerSelected:'native',skinChangerChoices:{},aboveOthersEnabled:!1,belowOthersEnabled:!1,noTransparencyEnabled:!1,showWinsEnabled:!1,keyZoom:'z',keyTurnSpeed:'t',keyHidePanel:'h',keyHideWorld:'j',keyAllDragons:'k',keyPerfMode:'p',keySkinChanger:'',keyAboveOthers:'',keyBelowOthers:'',keyNoTransparency:'',keyShowWins:'v',});const XENO_STORAGE_KEY='xeno_modpack_cfg_v1';function xenoSave(){try{const payload={turnSpeedEnabled:xeno.turnSpeedEnabled,turnSpeed:xeno.turnSpeed,turnStyle:xeno.turnStyle,zoomEnabled:xeno.zoomEnabled,zoomLevel:xeno.zoomLevel,hideWorldEnabled:xeno.hideWorldEnabled,hideWorldColor:xeno.hideWorldColor,allDragonsEnabled:xeno.allDragonsEnabled,perfModeEnabled:xeno.perfModeEnabled,skinChangerEnabled:xeno.skinChangerEnabled,skinChangerSelected:xeno.skinChangerSelected,skinChangerChoices:xeno.skinChangerChoices,aboveOthersEnabled:xeno.aboveOthersEnabled,belowOthersEnabled:xeno.belowOthersEnabled,noTransparencyEnabled:xeno.noTransparencyEnabled,showWinsEnabled:xeno.showWinsEnabled,keyZoom:xeno.keyZoom,keyTurnSpeed:xeno.keyTurnSpeed,keyHidePanel:xeno.keyHidePanel,keyHideWorld:xeno.keyHideWorld,keyAllDragons:xeno.keyAllDragons,keyPerfMode:xeno.keyPerfMode,keySkinChanger:xeno.keySkinChanger,keyAboveOthers:xeno.keyAboveOthers,keyBelowOthers:xeno.keyBelowOthers,keyNoTransparency:xeno.keyNoTransparency,keyShowWins:xeno.keyShowWins,};localStorage.setItem(XENO_STORAGE_KEY,JSON.stringify(payload))}catch(e){}}
+function xenoLoad(){try{const raw=localStorage.getItem(XENO_STORAGE_KEY);if(!raw)return;const p=JSON.parse(raw);if(typeof p.turnSpeedEnabled==='boolean')xeno.turnSpeedEnabled=p.turnSpeedEnabled;if(typeof p.turnSpeed==='number')xeno.turnSpeed=p.turnSpeed;if(typeof p.turnStyle==='string')xeno.turnStyle=p.turnStyle;if(typeof p.zoomEnabled==='boolean')xeno.zoomEnabled=p.zoomEnabled;if(typeof p.zoomLevel==='number')xeno.zoomLevel=p.zoomLevel;if(typeof p.hideWorldEnabled==='boolean')xeno.hideWorldEnabled=p.hideWorldEnabled;if(typeof p.hideWorldColor==='string')xeno.hideWorldColor=p.hideWorldColor;if(typeof p.allDragonsEnabled==='boolean')xeno.allDragonsEnabled=p.allDragonsEnabled;if(typeof p.perfModeEnabled==='boolean')xeno.perfModeEnabled=p.perfModeEnabled;if(typeof p.skinChangerEnabled==='boolean')xeno.skinChangerEnabled=p.skinChangerEnabled;if(typeof p.skinChangerSelected==='string')xeno.skinChangerSelected=p.skinChangerSelected;if(p.skinChangerChoices&&typeof p.skinChangerChoices==='object')xeno.skinChangerChoices=p.skinChangerChoices;if(typeof p.aboveOthersEnabled==='boolean')xeno.aboveOthersEnabled=p.aboveOthersEnabled;if(typeof p.belowOthersEnabled==='boolean')xeno.belowOthersEnabled=p.belowOthersEnabled;if(typeof p.noTransparencyEnabled==='boolean')xeno.noTransparencyEnabled=p.noTransparencyEnabled;if(typeof p.showWinsEnabled==='boolean')xeno.showWinsEnabled=p.showWinsEnabled;if(typeof p.keyZoom==='string')xeno.keyZoom=p.keyZoom;if(typeof p.keyTurnSpeed==='string')xeno.keyTurnSpeed=p.keyTurnSpeed;if(typeof p.keyHidePanel==='string')xeno.keyHidePanel=p.keyHidePanel;if(typeof p.keyHideWorld==='string')xeno.keyHideWorld=p.keyHideWorld;if(typeof p.keyAllDragons==='string')xeno.keyAllDragons=p.keyAllDragons;if(typeof p.keyPerfMode==='string')xeno.keyPerfMode=p.keyPerfMode;if(typeof p.keySkinChanger==='string')xeno.keySkinChanger=p.keySkinChanger;if(typeof p.keyAboveOthers==='string')xeno.keyAboveOthers=p.keyAboveOthers;if(typeof p.keyBelowOthers==='string')xeno.keyBelowOthers=p.keyBelowOthers;if(typeof p.keyNoTransparency==='string')xeno.keyNoTransparency=p.keyNoTransparency;if(typeof p.keyShowWins==='string')xeno.keyShowWins=p.keyShowWins;if(window.PIXI&&window.PIXI.settings){window.PIXI.settings.GC_MODE=xeno.perfModeEnabled?1:0}}catch(e){}}
+xenoLoad();let toggleHudTimer=null;let toggleHudEl=null;function showToggleHud(label,enabled){if(!toggleHudEl){toggleHudEl=document.createElement('div');toggleHudEl.id='xeno-toggle-hud';toggleHudEl.style.cssText='position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#000;border:1px solid #222;border-radius:6px;color:#e8e8e8;font:500 13px \'Viga\',system-ui,sans-serif;padding:7px 14px;z-index:100000;display:none;pointer-events:none;user-select:none;white-space:nowrap;letter-spacing:.04em;box-shadow:none!important;text-shadow:none!important;transition:none!important;animation:none!important;';document.body.appendChild(toggleHudEl)}
+toggleHudEl.innerHTML=label+': '+(enabled?'ON':'OFF');toggleHudEl.style.display='block';clearTimeout(toggleHudTimer);toggleHudTimer=setTimeout(()=>{if(toggleHudEl)toggleHudEl.style.display='none'},500)}
+let textureLoader=null;let displayNameFn=null;async function initModernHooks(){
+    const links=[...document.querySelectorAll('link[rel="modulepreload"][href]')].map(e=>new URL(e.href,location.href)).filter(e=>e.origin===location.origin&&e.pathname.endsWith('.js')&&!e.pathname.includes('/packages/'));
+    for(const link of links){
+        try{
+            const mod=await import(link.href);
+            const tl=Object.values(mod).find(e=>typeof e==='function'&&Function.prototype.toString.call(e).includes('Texture Loader'));
+            if(tl){
+                textureLoader=tl;
+                displayNameFn=Object.values(mod).find(e=>typeof e==='function'&&Function.prototype.toString.call(e).includes('items:')&&Function.prototype.toString.call(e).includes('.displayName'))||displayNameFn;
+                break;
+            }
+        }catch(e){}
+    }
+}
+initModernHooks();function updateSkinDropdown(){const sel=document.getElementById('xp-skinChangerSelected');const status=document.getElementById('xp-skin-status');if(status){status.textContent=G.message||''}
+if(!sel)return;const skins=getAnimalSkins();const game=getGame();const animalName=getAnimalTypeStr(game?.player);if(!skins.length){sel.innerHTML=`<option value="native">${animalName ? 'No extra skins for ' + formatAnimalName(animalName) : 'Spawn in-game to view skins'}</option>`;sel.disabled=!1;return}
+sel.disabled=!1;sel.innerHTML=skins.map(s=>`<option value="${s.key}"${s.key === xeno.skinChangerSelected ? ' selected' : ''}>${s.label}</option>`).join('')}
+const G={items:[],state:'idle',message:'',request:null,attemptedAt:0};async function loadSkinCatalog(force=!1){const g=getGame();const axis=g?.config?.axisURL||'https://api.mope.io';if(!axis||G.request||(!force&&G.state==='loaded'))return;if(!force&&Date.now()-G.attemptedAt<60000)return;G.attemptedAt=Date.now();G.state='loading';G.message='Loading catalog...';updateSkinDropdown();const ac=new AbortController();G.request=ac;const tm=setTimeout(()=>ac.abort(),15000);try{const res=await fetch(axis.replace(/\/$/,'')+'/inventory/catalog?type=SKIN',{credentials:'include',signal:ac.signal});if(res.status===401||res.status===403){G.state='signin';G.message='Sign in to mope.io to load catalog';return}
+if(!res.ok)throw Error(res.status);const data=await res.json();if(!Array.isArray(data.items))throw Error('Invalid');const m=new Map();for(const item of data.items){const ani=item?.metadata?.forAnimal;if(item?.type==='SKIN'&&typeof item.id==='string'&&typeof ani==='string'&&/^[a-z][a-z0-9_]*$/.test(ani)){m.set(item.id,{id:item.id,animal:ani,label:typeof item.displayName==='string'?item.displayName:(displayNameFn?displayNameFn(item.id):formatAnimalName(item.id))})}}
+G.items=[...m.values()].sort((a,b)=>a.label.localeCompare(b.label));G.state='loaded';G.message=G.items.length+' skins loaded'}catch(e){G.state='error';G.message='Catalog unavailable'}finally{clearTimeout(tm);G.request=null;updateSkinDropdown()}}
+function formatAnimalName(e){return String(e).replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase())}
+function isValidTexture(e){return!!e&&!e.destroyed&&!!e.source&&!e.source.destroyed&&Number.isFinite(e.width)&&e.width>0&&Number.isFinite(e.height)&&e.height>0}
+function getTextureSource(e){return e?.label||e?.source?.label||e?.source?._sourceOrigin||e?.source?.resource?.src||''}
+function getAnimalTypeStr(e){if(!e)return'';const fromPath=function(a,sub=a?.subspecies){if(!a)return'';const proto=Object.create(a);Object.defineProperties(proto,{equippedItemId:{value:''},subspecies:{value:sub}});return proto.texturePath||''}(e);const m=/^animals\/[^/]+\/([^/]+)\//.exec(fromPath);if(m&&m[1])return m[1];const game=getGame();if(game?.classes?.animals){const found=Object.entries(game.classes.animals).find(([,cls])=>cls===e.constructor);if(found)return found[0]}
+return''}
+function getAnimals(){const game=getGame();const animCls=game?.classes?.global?.animal;if(animCls?.list?.values){return[...animCls.list.values()].filter(e=>e?.spawned&&e.id>0&&e.type==='animal'&&e.position)}
+return[]}
+function isLivingAnimal(e){return!!e&&e.spawned&&e.id>0&&e.type==='animal'&&!e.isClientObject&&!e.container?.destroyed&&!!e.animalConfig?.animalResource&&typeof e.originalName==='string'&&Number.isInteger(e.tier)&&e.tier>=1&&e.tier<=17&&(e.animalConfig.showInUpgradeMenu===!0||getAnimalTypeStr(e)==='king_dragon')}
+function getAnimalSkins(){const game=getGame();const player=game?.player;const animalStr=getAnimalTypeStr(player);if(!player||!animalStr)return[];const config=player.animalConfig;const subEnum=Object.entries(config?.subspeciesEnum||{}).filter(([k,v])=>/^\d+$/.test(k)&&typeof v==='string');const result=[{key:'native',label:'Current equipped skin',path:''}];for(const[k,r]of(subEnum.length?subEnum:[['0','DEFAULT']])){const subFolder=r==='DEFAULT'?'':r.toLowerCase()+'/';const biome=config?.animalResource?.type===1?'volcano':config?.biome;const path='animals/'+(biome||'land')+'/'+animalStr+'/'+subFolder;result.push({key:'variant:'+k,label:r==='DEFAULT'?'Default '+formatAnimalName(animalStr):formatAnimalName(r)+' (variant)',path:path})}
+const s3=game?.config?.s3PublicUrl?.replace(/\/$/,'')||'https://assets.mope.io';if(s3){for(const item of G.items){if(item.animal===animalStr){result.push({key:'item:'+item.id,label:item.label,path:s3+'/items/'+encodeURIComponent(item.id)+'/',item:item.id})}}}
+return result}
+const ae=new Map();function qe(path){const loader=textureLoader||(window.PIXI?.Texture?.from?(p=>window.PIXI.Texture.from(p+'.webp')):null);if(!loader)return null;let entry=ae.get(path);if(!entry){entry={texture:null,failed:!1,loading:!1,retryAt:0};ae.set(path,entry)}
+if(entry.texture&&!isValidTexture(entry.texture)){entry.texture=null;entry.retryAt=0}
+if(!entry.texture&&!entry.loading&&performance.now()>=entry.retryAt){entry.loading=!0;entry.failed=!1;const onFail=()=>{entry.failed=!0;entry.retryAt=performance.now()+5000};Promise.resolve().then(()=>loader(path)).then(tex=>{if(!isValidTexture(tex)||/(?:^|\/)placeholder\.webp(?:$|\?)/.test(getTextureSource(tex))){onFail()}else{entry.texture=tex}},onFail).finally(()=>{entry.loading=!1})}
+return entry.texture}
+let B=[];function restoreOverrides(){const list=B;B=[];for(let i=list.length-1;i>=0;i--){try{list[i]()}catch(e){}}}
+function setProp(obj,prop,val){if(!obj||obj.destroyed||obj[prop]===val)return;const old=obj[prop];B.push(()=>{if(!obj.destroyed){obj[prop]=old;if(prop==='zIndex')obj.parentRenderLayer?.markDirty?.();}});obj[prop]=val}
+function setTexture(obj,tex,w=obj.width,h=obj.height){if(!isValidTexture(tex)||!Number.isFinite(w)||w<0||!Number.isFinite(h)||h<0)return!1;const oldTex=obj.texture;const oldW=obj.width;const oldH=obj.height;B.push(()=>{if(!obj.destroyed&&obj.texture===tex){obj.texture=isValidTexture(oldTex)?oldTex:null;obj.width=oldW;obj.height=oldH}});obj.texture=tex;obj.width=w;obj.height=h;return!0}
+function traverseChildren(obj,fn){if(obj&&!obj.destroyed){fn(obj);for(const child of(obj.children||[])){traverseChildren(child,fn)}}}
+const re=new Map();const Q=new Map();function removeSkin(animal,skinInfo){skinInfo.active=!1;if(skinInfo.proxy){skinInfo.proxy.skinAnimationLoad++;skinInfo.proxy.skinAnimator?.destroy?.()}
+re.delete(animal)}
+function applySkinToAnimal(animal,time){const game=getGame();if(!game)return;let targetSkin=null;if(animal===game.player&&xeno.skinChangerEnabled){const skins=getAnimalSkins();targetSkin=skins.find(s=>s.key===xeno.skinChangerSelected)}
+let applied=re.get(animal);if(!applied||(targetSkin?.path&&applied.key===targetSkin.key)){}else{removeSkin(animal,applied);applied=null}
+if(!targetSkin?.path||!animal.base||animal.base.destroyed)return;const bodyTex=qe(targetSkin.path+'body');if(!bodyTex)return;if(!applied){applied=(function(a,sk){const info={path:sk.path,key:sk.key,active:!0,proxy:null,animationError:!1};re.set(a,info);if(sk.item&&typeof a.setSkinAnimation==='function'){const proxy=Object.create(a);Object.defineProperties(proxy,{texturePath:{value:sk.path},skinAnimator:{value:undefined,writable:!0},skinAnimationLoad:{value:0,writable:!0},spawned:{get:()=>info.active&&a.spawned&&game.player===a}});info.proxy=proxy;(function(itemId){if(!Q.has(itemId)){const ac=new AbortController();const timer=setTimeout(()=>ac.abort(),10000);const p=fetch(game.config.axisURL.replace(/\/$/,'')+'/inventory/skins/'+encodeURIComponent(itemId)+'/animation',{signal:ac.signal}).then(async res=>{if(res.status===404)return null;if(!res.ok)throw Error('Animation unavailable');const data=await res.json();const anim=data.animation;if(anim===null)return null;if(anim?.version!==1||(anim.layers&&(!Array.isArray(anim.layers)||anim.layers.length>16)))throw Error('Unsupported animation');for(const l of anim.layers||[]){if(!['body','head','wing1','wing2'].includes(l.anchor)||!['above','below'].includes(l.z))throw Error('Unsupported animation layer');const frames=l.frames||[l.texture];if(!Array.isArray(frames)||!frames.length||frames.length>64||frames.some(f=>typeof f!=='string'||!/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(f)))throw Error('Invalid animation texture');}
+return anim}).finally(()=>clearTimeout(timer));p.catch(()=>{});Q.set(itemId,{promise:p,request:ac})}
+return Q.get(itemId).promise})(sk.item).then(anim=>{if(proxy.spawned&&anim)return a.setSkinAnimation.call(proxy,anim);}).catch(()=>{if(info.active)info.animationError=!0})}
+return info})(animal,targetSkin)}
+const basePath=new URL(/^(https?:|\.\/assets\/)/.test(animal.texturePath)?animal.texturePath:'./assets/'+animal.texturePath,location.href).href;const animSprites=new Set(applied.proxy?.skinAnimator?.layers?.map(l=>l.sprite)||[]);traverseChildren(animal.container,child=>{if(!child.texture||animSprites.has(child))return;const src=getTextureSource(child.texture);const fullUrl=src?new URL(src,location.href).href:'';const rel=fullUrl.startsWith(basePath)?fullUrl.slice(basePath.length).replace(/\.webp(?:\?.*)?$/,''):null;const newTex=rel?qe(targetSkin.path+rel):(child===animal.base?bodyTex:null);if(newTex)setTexture(child,newTex);});if(animal.skinAnimator){animal.skinAnimator.restore();for(const l of(animal.skinAnimator.layers||[])){setProp(l.sprite,'visible',!1)}}
+const animObj=applied.proxy?.skinAnimator;if(animObj&&!animObj.destroyed){animObj.update(time,animal.skinAnimationState);B.push(()=>animObj.restore())}}
+let J_layer=null;function cleanLayer(){if(J_layer){J_layer.removeFromParent?.();J_layer.destroy?.();J_layer=null}}
+function applyLayeringToPlayer(player){if(!player?.spawned||!player.container?.parentRenderLayer)return;if(!xeno.aboveOthersEnabled&&!xeno.belowOthersEnabled){cleanLayer();return}
+const renderLayer=player.container.parentRenderLayer;const parent=renderLayer.parent;if(!parent?.addChild||!renderLayer.attach)return;if(J_layer&&J_layer.parent!==parent)cleanLayer();if(!J_layer){J_layer=new renderLayer.constructor();J_layer.sortableChildren=!1;parent.addChild(J_layer)}
+let targetIndex=parent.children.length-1;if(xeno.belowOthersEnabled){const dummy={constructor:{container:{parentRenderLayer:!0}}};let holeLayer;try{const animalProto=getGame()?.classes?.global?.animal?.prototype;if(animalProto?.updateLayer){holeLayer=animalProto.updateLayer.call(dummy,'hole')}}catch(e){}
+if(!holeLayer||holeLayer.parent!==parent){const animals=getAnimals();holeLayer=animals.map(e=>e.container?.parentRenderLayer).filter(l=>l&&l.parent===parent&&l!==J_layer).sort((a,b)=>parent.children.indexOf(a)-parent.children.indexOf(b))[0]||renderLayer}
+targetIndex=parent.children.indexOf(holeLayer);if(parent.children.indexOf(J_layer)<targetIndex)targetIndex--}
+parent.setChildIndex(J_layer,Math.max(0,targetIndex));traverseChildren(player.container,child=>{if(child===player.HUD||child?.label==='HUD'||child?.name==='HUD'||child?.parent===player.HUD||(player.HUD?.children&&player.HUD.children.includes(child)))return;if(player.chats&&player.chats.some(c=>c?.container===child||c?.container?.children?.includes(child)))return;const lyr=child.parentRenderLayer;if(!lyr||lyr===J_layer||lyr.parent!==parent)return;if(lyr?.label==='HUD'||lyr?.name==='HUD')return;const curJ=J_layer;B.push(()=>{if(!child.destroyed&&child.parentRenderLayer===curJ){lyr.destroyed?curJ.detach(child):lyr.attach(child)}});curJ.attach(child)})}
+function applyTransparencyToAnimal(animal){if(!xeno.noTransparencyEnabled)return;for(const part of[animal.outline,animal.tail,animal.skin,animal.name,animal.arenaWins,animal.base]){if(part)setProp(part,'alpha',1);}}
+function shouldHideWinsForAnimal(animal,player){if(!animal)return!0;if(animal.shouldHideHUD)return!0;if(animal.arena||animal.flag_isInArena)return!0;if(player&&(player.arena||player.flag_isInArena))return!0;return!1}
+function applyWinsToAnimal(animal){if(!animal.arenaWins)return;const game=getGame();const player=game?.player;if(!xeno.showWinsEnabled){setProp(animal.arenaWins,'visible',!1);return}
+if(shouldHideWinsForAnimal(animal,player)){setProp(animal.arenaWins,'visible',!1);return}
+const isLiving=isLivingAnimal(animal);const tier=Number.isInteger(animal.tier)?animal.tier:0;const wins=Number.isInteger(animal.numArenaWins)?animal.numArenaWins:(Number.isInteger(animal.wins1v1)?animal.wins1v1:-1);const canShow=isLiving&&tier>=15&&wins>=0;setProp(animal.arenaWins,'visible',canShow);if(canShow){setProp(animal.arenaWins,'text','Wins: '+wins);animal.renderName?.()}}
+let lastPlayerAnimal='';function xenoUpdateEntities(dt,time){const game=getGame();if(!game)return;const player=game.player;if(player){const curAnimal=getAnimalTypeStr(player);if(curAnimal&&curAnimal!==lastPlayerAnimal){lastPlayerAnimal=curAnimal;if(xeno.skinChangerChoices[curAnimal]){xeno.skinChangerSelected=xeno.skinChangerChoices[curAnimal]}else{xeno.skinChangerSelected='native'}
+updateSkinDropdown()}}
+for(const[ani,info]of re){if(!ani.spawned||(ani===player&&!xeno.skinChangerEnabled)){removeSkin(ani,info)}}
+const animals=getAnimals();for(const animal of animals){if(animal===player&&xeno.skinChangerEnabled){applySkinToAnimal(animal,time)}
+if(xeno.showWinsEnabled){applyWinsToAnimal(animal)}
+if(xeno.noTransparencyEnabled){applyTransparencyToAnimal(animal)}}
+if(player&&(xeno.aboveOthersEnabled||xeno.belowOthersEnabled)){applyLayeringToPlayer(player)}else{cleanLayer()}}
+let _xenoEntitiesHooked=!1;function xenoTryEntitiesHook(){if(_xenoEntitiesHooked)return;$=getGame();if(!$||!$.loop){setTimeout(xenoTryEntitiesHook,200);return}
+const target=typeof $.loop.updateEntities==='function'?$.loop:Object.getPrototypeOf($.loop);if(target&&target.updateEntities){const origUpdate=target.updateEntities;target.updateEntities=function(...args){restoreOverrides();const res=origUpdate.apply(this,args);try{xenoUpdateEntities(args[0],args[1]||performance.now())}catch(e){}
+return res};_xenoEntitiesHooked=!0}}
+xenoTryEntitiesHook();function xenoApplyZoom(){if(!xeno.zoomEnabled)return;$=getGame();if(!$||!$?.camera||!$?.settings?.rendering)return;$.settings.rendering.zoom=xeno.zoomLevel;const resolution=$?.loop?.resolution??1;const rawTarget=xeno.zoomLevel*resolution;$.camera.zoom=rawTarget;if($.camera.targetZoom!==undefined)$.camera.targetZoom=rawTarget;if($.camera.scale!==undefined)$.camera.scale=rawTarget;if($?.stage?.scale?.set){$?.stage?.scale?.set(xeno.zoomLevel)}}
+window.addEventListener('wheel',function(e){if(!xeno.zoomEnabled)return;if(e.target&&e.target.closest&&e.target.closest('#xploitio-panel'))return;e.preventDefault();e.stopImmediatePropagation();const delta=e.deltaY<0?xeno._STEP:-xeno._STEP;xeno.zoomLevel=parseFloat(Math.max(xeno._MIN_ZOOM,Math.min(xeno._MAX_ZOOM,xeno.zoomLevel+delta)).toFixed(1));const sl=document.getElementById('xp-zoomLevel');const val=document.getElementById('xp-zoomLevel-val');if(sl)sl.value=xeno.zoomLevel;if(val)val.value=xeno.zoomLevel;xenoApplyZoom()},{capture:!0,passive:!1});let _xenoCameraHooked=!1;function xenoTryCameraHook(){if(_xenoCameraHooked)return;$=getGame();if(!$||!$?.camera){setTimeout(xenoTryCameraHook,200);return}
+const camProto=Object.getPrototypeOf($.camera);if(!camProto||!camProto.update){function xenoZoomLoop(){xenoApplyZoom();requestAnimationFrame(xenoZoomLoop)}
+requestAnimationFrame(xenoZoomLoop);_xenoCameraHooked=!0;return}
+const _origCamUpdate=camProto.update;camProto.update=function(...args){const r=_origCamUpdate.apply(this,args);if(this===$.camera){xenoApplyZoom()}
+return r};_xenoCameraHooked=!0}
+xenoTryCameraHook();function hexToNumber(hex){return parseInt(hex.replace('#',''),16)}
+const XENO_ORIGINAL_BG=0x08992F;function xenoApplyHideWorld(){$=getGame();if(!$)return;const hide=xeno.hideWorldEnabled;const map=$&&$.map?$.map:null;if(map){if(map.container){map.container.renderable=!hide;map.container.visible=!hide}
+if(map.grid){map.grid.alpha=hide?0:0.055}}
+const canvas=document.querySelector('#canvas');if(canvas)canvas.style.backgroundColor=hide?xeno.hideWorldColor:'';const rend=$&&$.loop?$.loop.renderer:null;if(rend){const targetColor=hide?hexToNumber(xeno.hideWorldColor):XENO_ORIGINAL_BG;try{if(rend.background)rend.background.color=targetColor}catch(e){}
+try{if(rend.backgroundColor!==undefined)rend.backgroundColor=targetColor}catch(e){}}}
+let _xenoHideWorldRAFRunning=!1;function xenoHideWorldLoop(){if(xeno.hideWorldEnabled)xenoApplyHideWorld();requestAnimationFrame(xenoHideWorldLoop)}
+function xenoTryHideWorldLoop(){if(_xenoHideWorldRAFRunning)return;$=getGame();if(!$||!$.loop){setTimeout(xenoTryHideWorldLoop,200);return}
+_xenoHideWorldRAFRunning=!0;requestAnimationFrame(xenoHideWorldLoop)}
+xenoTryHideWorldLoop();let _xenoRenderHooked=!1;function xenoTryRenderHook(){if(_xenoRenderHooked)return;$=getGame();if(!$||!$.loop){setTimeout(xenoTryRenderHook,200);return}
+const loopProto=Object.getPrototypeOf($.loop);if(loopProto&&loopProto.render){const _origRender=loopProto.render;loopProto.render=function(...args){if(xeno.perfModeEnabled){if(this.lightning){this._xenoLightningHidden=!0;if(this.lightning.container)this.lightning.container.visible=!1;if(this.lightning.layer)this.lightning.layer.visible=!1}}else if(this._xenoLightningHidden){this._xenoLightningHidden=!1;if(this.lightning){if(this.lightning.container)this.lightning.container.visible=!0;if(this.lightning.layer)this.lightning.layer.visible=!0}}
+return _origRender.apply(this,args)};_xenoRenderHooked=!0}}
+xenoTryRenderHook();const _origMapSet=Map.prototype.set;Map.prototype.set=function(key,val){if(val&&typeof val==='object'&&val.type&&val.position&&val.container){if(!val.__proto__._xenoHooked){val.__proto__._xenoHooked=!0;const _origUpdate=val.__proto__.update;if(typeof _origUpdate==='function'){val.__proto__.update=function(dt,time){const oldAngle=this.angle;const res=_origUpdate.call(this,dt,time);if(this.type==='animal'&&xeno.turnSpeedEnabled&&this.target){let nativeDiff=this.angle-oldAngle;nativeDiff=Math.atan2(Math.sin(nativeDiff),Math.cos(nativeDiff));if(xeno.turnStyle==='instant'){this.angle=this.target.angle;if(this.body)this.body.rotation=this.angle}else if(nativeDiff!==0){const mult=xeno.turnSpeed/120;const diffToTarget=Math.atan2(Math.sin(this.target.angle-oldAngle),Math.cos(this.target.angle-oldAngle));let extraDiff=0;if(xeno.turnStyle==='linear'){extraDiff=nativeDiff*(mult-1)}else if(xeno.turnStyle==='ease-out'){const factor=Math.abs(diffToTarget)/Math.PI;extraDiff=nativeDiff*(mult*(factor+0.5)-1)}else if(xeno.turnStyle==='ease-in'){const factor=1.0-Math.abs(diffToTarget)/Math.PI;extraDiff=nativeDiff*(mult*(factor+0.5)-1)}
+this.angle+=extraDiff;if(this.body)this.body.rotation=this.angle}}
+if(xeno.hideWorldEnabled&&this.type!=='animal'&&this.type!=='arena'){if(this.container)this.container.visible=!1;if(this.HUD)this.HUD.visible=!1}
+if(this.type==='animal'){if(xeno.allDragonsEnabled){this._nvjDragonEnabled=!0;if(!window.rvjDragonTex&&window.rvjDragonImg.complete&&window.rvjDragonImg.naturalWidth>0&&this.base&&this.base.texture){try{let TexClass=this.base.texture.constructor;if(typeof TexClass.from==='function'){window.rvjDragonTex=TexClass.from(window.rvjDragonImg)}else if(window.PIXI&&window.PIXI.Texture&&window.PIXI.Texture.from){window.rvjDragonTex=window.PIXI.Texture.from(window.rvjDragonImg)}}catch(e){}}
+if(window.rvjDragonTex&&this.base&&this.base.texture!==window.rvjDragonTex){if(!this._nvjOrigTex)this._nvjOrigTex=this.base.texture;this.base.texture=window.rvjDragonTex}
+const keepVisible=new Set([this.container,this.body,this.skin,this.base,this.HUD,this.name,this.arenaWins,this.resourceIndicator,this.outline]);if(this.health&&this.health.container)keepVisible.add(this.health.container);const tailProps=['tail','hurtTail','flyingTail','stingrayTail','tailSprite','abilityTail','bottomTail','topTail'];tailProps.forEach(prop=>{if(this[prop])keepVisible.add(this[prop]);});const hideOthers=(parent)=>{if(!parent||!parent.children)return;for(let i=0;i<parent.children.length;i++){let child=parent.children[i];if(!keepVisible.has(child)){if(child._rvjOrigVisD===undefined)child._rvjOrigVisD=child.visible;child.visible=!1}else{if(child._rvjOrigVisD!==undefined){child.visible=child._rvjOrigVisD;delete child._rvjOrigVisD}
+if(child!==this.HUD){hideOthers(child)}}}};hideOthers(this.container);if(this.base){this.base.visible=!0;if(this.size&&this.size.x&&this.base.texture){try{let ratio=this.base.texture.height/this.base.texture.width;if(typeof this.base.setSize==='function'){this.base.setSize(this.size.x,this.size.x*ratio)}else{this.base.width=this.size.x;this.base.height=this.size.x*ratio}}catch(e){}}}
+if(this.skin){this.skin.visible=!0}}else if(this._nvjDragonEnabled){this._nvjDragonEnabled=!1;if(this.base&&this._nvjOrigTex){this.base.texture=this._nvjOrigTex;delete this._nvjOrigTex}
+const restoreOthers=(parent)=>{if(!parent||!parent.children)return;for(let i=0;i<parent.children.length;i++){let child=parent.children[i];if(child._rvjOrigVisD!==undefined){child.visible=child._rvjOrigVisD;delete child._rvjOrigVisD}
+if(child!==this.HUD){restoreOthers(child)}}};restoreOthers(this.container)}}
+if(xeno.perfModeEnabled){this._xenoPerfActive=!0;if(this.bubblesContainer)this.bubblesContainer.visible=!1;if(this.variations&&Array.isArray(this.variations)){this.variations.forEach(v=>{if(v.sprite)v.sprite.visible=!1;if(v.circle)v.circle.visible=!1})}
+if(this.container&&this.container.filters&&this.container.filters.length>0){this._xenoOrigFilters=this.container.filters;this.container.filters=[]}
+if(this.name&&this.name.style&&this.name.style.dropShadow!==!1){this._xenoOrigDropShadow=this.name.style.dropShadow;this._xenoOrigStrokeThickness=this.name.style.strokeThickness;this.name.style.dropShadow=!1;this.name.style.strokeThickness=0}}else if(this._xenoPerfActive){this._xenoPerfActive=!1;if(this.variations&&Array.isArray(this.variations)){this.variations.forEach(v=>{if(v.sprite)v.sprite.visible=!0;if(v.circle)v.circle.visible=!0})}
+if(this.container&&this._xenoOrigFilters!==undefined){this.container.filters=this._xenoOrigFilters;delete this._xenoOrigFilters}
+if(this.name&&this.name.style&&this._xenoOrigDropShadow!==undefined){this.name.style.dropShadow=this._xenoOrigDropShadow;this.name.style.strokeThickness=this._xenoOrigStrokeThickness;delete this._xenoOrigDropShadow;delete this._xenoOrigStrokeThickness}}
+return res}}}}
+return _origMapSet.call(this,key,val)};function buildGUI(){if(document.getElementById('battel-void-style'))return;const fontLink=document.createElement('link');fontLink.rel='stylesheet';fontLink.href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Viga&display=swap';document.head.appendChild(fontLink);const styleEl=document.createElement('style');styleEl.id='battel-void-style';styleEl.textContent=`
+      .battel-void-root,.battel-void-root *{box-sizing:border-box}
+      .battel-void-root{
+        --xn-bg:#000;--xn-surface:#0d0d0d;--xn-surface2:#141414;
+        --xn-border:#222;--xn-border2:#2a2a2a;--xn-accent:#fff;
+        --xn-muted:#555;--xn-text:#e8e8e8;--xn-text-dim:#888;
+        --xn-toggle-on:#fff;--xn-toggle-off:#2a2a2a;--xn-range:#fff;
+        --xn-shell-w:860px;--xn-shell-h:520px;--xn-sidebar-w:160px;
+        --xn-card-min:230px;--xn-radius:6px;
+        position:fixed;top:14px;right:14px;z-index:99999;
+        font-family:'Viga',system-ui,sans-serif;color:var(--xn-text);
+        user-select:none;font-size:13px;
+      }
+      .battel-void-shell{width:min(var(--xn-shell-w),96vw);height:min(var(--xn-shell-h),90vh);
+        background:var(--xn-bg);border:1px solid var(--xn-border);
+        border-radius:var(--xn-radius);display:flex;flex-direction:column;overflow:hidden;}
+      .battel-void-titlebar{display:flex;align-items:center;justify-content:space-between;
+        padding:10px 14px;border-bottom:1px solid var(--xn-border);
+        cursor:grab;flex-shrink:0;background:var(--xn-bg);}
+      .battel-void-titlebar:active{cursor:grabbing}
+      .battel-void-brand{display:flex;align-items:center;gap:7px;min-width:0}
+      .battel-void-title{font-size:14px;font-weight:700;color:#fff;letter-spacing:.04em;
+        line-height:1;font-family:'Inter',system-ui,sans-serif;}
+      .xn-title-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex-shrink:0}
+      .xn-title-icon svg{width:16px;height:16px;display:block}
+      .battel-void-toggle{width:32px;height:32px;border:1px solid var(--xn-border2);
+        border-radius:var(--xn-radius);background:var(--xn-surface2);cursor:pointer;
+        display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+      .battel-void-toggle:hover{background:var(--xn-border)}
+      .xn-burger{display:flex;flex-direction:column;gap:4px;pointer-events:none}
+      .xn-burger span{display:block;width:14px;height:1.5px;background:var(--xn-text);border-radius:2px;}
+      .battel-void-main{display:flex;flex:1;min-height:0;background:var(--xn-bg);}
+      .battel-void-sidebar{width:var(--xn-sidebar-w);flex-shrink:0;background:var(--xn-surface);
+        border-right:1px solid var(--xn-border);padding:12px 8px 8px;
+        display:flex;flex-direction:column;gap:1px;overflow-y:auto;overflow-x:hidden;}
+      .battel-void-sidebar::-webkit-scrollbar{width:4px}
+      .battel-void-sidebar::-webkit-scrollbar-thumb{background:var(--xn-border2);border-radius:4px}
+      .battel-void-tab{display:flex;align-items:center;gap:8px;width:100%;background:transparent;
+        border:none;border-radius:5px;padding:9px 10px;color:var(--xn-text-dim);
+        font:500 12px 'Viga',sans-serif;cursor:pointer;text-align:left;white-space:nowrap;}
+      .battel-void-tab:hover{background:var(--xn-surface2);color:var(--xn-text);}
+      .battel-void-tab.active{background:var(--xn-surface2);color:#fff;font-weight:600;}
+      .battel-void-tab-ic{display:inline-flex;width:14px;height:14px;align-items:center;
+        justify-content:center;flex-shrink:0;opacity:.7;}
+      .battel-void-tab.active .battel-void-tab-ic{opacity:1}
+      .battel-void-tab-ic svg{width:14px;height:14px;display:block;fill:none;stroke:currentColor;
+        stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+      .battel-void-content{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:12px;}
+      .battel-void-content::-webkit-scrollbar{width:4px}
+      .battel-void-content::-webkit-scrollbar-thumb{background:var(--xn-border2);border-radius:4px}
+      .battel-void-page{display:none}
+      .battel-void-page-grid{display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(var(--xn-card-min),1fr));
+        gap:8px;align-content:start;align-items:start;}
+      .battel-void-section-title{grid-column:1/-1;font-size:10px;font-weight:700;
+        letter-spacing:.10em;text-transform:uppercase;color:var(--xn-muted);
+        padding:6px 10px 4px;margin-top:4px;border-top:1px solid var(--xn-border);}
+      .battel-void-section-title:first-child{border-top:none;margin-top:0;padding-top:0}
+      .battel-void-row{display:flex;align-items:center;justify-content:space-between;gap:12px;
+        background:var(--xn-surface);border:1px solid var(--xn-border);
+        border-radius:5px;padding:7px 10px;min-height:36px;}
+      .battel-void-row:hover{background:#1a1a1a;}
+      .battel-void-label{font-size:12px;font-weight:500;color:var(--xn-text);
+        flex:0 0 auto;line-height:1.2;white-space:nowrap;margin-right:8px;}
+      .battel-void-input-wrap{display:flex;align-items:center;justify-content:flex-end;
+        gap:6px;flex:1;min-width:0;}
+      .battel-void-input-wrap input[type="range"]{flex:1;min-width:0;accent-color:var(--xn-range);cursor:pointer;}
+      .battel-void-input-wrap select,.battel-void-input-wrap input[type="checkbox"]{flex-shrink:0;}
+      .battel-void-row input[type="text"],
+      .battel-void-row input[type="number"],
+      .battel-void-row select{background:var(--xn-surface2);color:var(--xn-text);
+        border:1px solid var(--xn-border2);border-radius:4px;
+        padding:4px 7px;font:500 11px 'Viga',monospace;outline:none;}
+      .battel-void-row select{cursor:pointer}
+      .battel-void-row input[type="checkbox"]{appearance:none;-webkit-appearance:none;
+        width:36px;height:20px;border-radius:999px;background:var(--xn-toggle-off);
+        border:1px solid var(--xn-border2);cursor:pointer;position:relative;flex-shrink:0;}
+      .battel-void-row input[type="checkbox"]::before{content:"";position:absolute;
+        top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:#555;}
+      .battel-void-row input[type="checkbox"]:checked{background:var(--xn-toggle-on);border-color:var(--xn-accent);}
+      .battel-void-row input[type="checkbox"]:checked::before{transform:translateX(16px);background:#000;}
+      .xp-sl-val{background:var(--xn-surface2);border:1px solid var(--xn-border2);
+        padding:2px 4px;border-radius:4px;color:var(--xn-text-dim);
+        font:500 10px 'Viga',monospace;width:46px;min-width:46px;
+        text-align:center;outline:none;-moz-appearance:textfield;}
+      .xp-sl-val::-webkit-inner-spin-button,.xp-sl-val::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+      .xp-sl-val:focus{border-color:var(--xn-muted);color:var(--xn-text)}
+      .xp-keybind{flex:1;min-width:32px;text-align:center;background:var(--xn-surface2);
+        border:1px solid var(--xn-border2);color:var(--xn-text);font:500 11px monospace;
+        outline:none;text-transform:lowercase;border-radius:4px;padding:4px 6px;}
+      .xp-keybind:focus{border-color:var(--xn-muted)}
+      .xp-cfg-row{display:flex;gap:8px;grid-column:1/-1;width:100%;}
+      .xp-cfg-btn{flex:1;display:flex;align-items:center;justify-content:center;
+        padding:9px 10px;border-radius:5px;border:1px solid var(--xn-border2);
+        background:var(--xn-surface2);color:var(--xn-text);font:600 12px 'Viga',sans-serif;
+        cursor:pointer;letter-spacing:.04em;transition:none;}
+      .xp-cfg-btn:hover{background:#1e1e1e;border-color:var(--xn-muted)}
+      .xp-cfg-btn.danger{border-color:#3a1a1a;color:#e05555;}
+      .xp-cfg-btn.danger:hover{background:#1e0a0a;border-color:#e05555}
+      .xp-color-pick{width:32px;height:24px;border:1px solid var(--xn-border2);border-radius:4px;
+        background:var(--xn-surface2);cursor:pointer;padding:2px;flex-shrink:0;}
+      .xn-lang-select{background:var(--xn-surface2);color:var(--xn-text);
+        border:1px solid var(--xn-border2);border-radius:var(--xn-radius);
+        padding:4px 6px;font:500 11px 'Viga',sans-serif;cursor:pointer;
+        outline:none;height:32px;flex-shrink:0;}
+      .xn-lang-select:hover{background:var(--xn-border)}
+      .xn-titlebar-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+      .xn-span-full{grid-column:1/-1}
+    `;document.head.appendChild(styleEl);const ICONS={'tab-general':`<svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/>
+                 <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/>
+                 <circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/>
+                 <circle cx="11" cy="18" r="2" fill="currentColor" stroke="none"/></svg>`,'tab-graphics':`<svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/>
+                 <path d="M8 21h8M12 17v4"/><path d="M9 10l1.5 1.5L14 8"/></svg>`,'tab-movement':`<svg viewBox="0 0 24 24">
+                 <path d="M12 4v16M4 12h16"/>
+                 <path d="M12 4l-3 3M12 4l3 3M12 20l-3-3M12 20l-3-3M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"/></svg>`,'tab-keybinds':`<svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/>
+                 <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>`,'tab-config':`<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
+                 <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+                 <path d="M15.54 8.46a5 5 0 0 1 0 7.07M8.46 8.46a5 5 0 0 0 0 7.07"/></svg>`,};const TAB_DEFS=[{id:'tab-general',lk:'general'},{id:'tab-graphics',lk:'graphics'},{id:'tab-movement',lk:'movement'},{id:'tab-keybinds',lk:'keybinds'},{id:'tab-config',lk:'config'},];const LANG={en:{general:'General',graphics:'Graphics',movement:'Movement',keybinds:'Keybinds',config:'Config',secZoom:'Zoom',zoomToggle:'Custom Zoom',zoomLevel:'Zoom Level',secTurnSpeed:'Turn Speed',turnSpeed:'Turn Speed',turnIntensity:'Turnspeed Intensity',turnResolver:'Turnspeed Resolver',secKeybinds:'Keybinds',kbTurnSpeed:'Toggle Turn Speed',kbHide:'Hide Panel',kbZoom:'Toggle Zoom',secConfig:'Configuration',cfgSave:'Save Configuration',cfgReset:'Reset Configuration',secHideWorld:'Hide World',hideWorldToggle:'Hide World',hideWorldColor:'Background Color',kbHideWorld:'Toggle Hide World',secAllDragons:'All Dragons',allDragonsToggle:'All Dragons',kbAllDragons:'Toggle All Dragons',secPerfMode:'Performance Mode',perfModeToggle:'Performance Mode',kbPerfMode:'Toggle Perf. Mode',secSkinChanger:'Skin Changer',skinChangerToggle:'Skin Changer',skinSelect:'Skin',refreshSkins:'Refresh Skins',secLayering:'Layering',aboveOthersToggle:'Above Others',belowOthersToggle:'Below Others',secTransparency:'Transparency',noTransparencyToggle:'No Transparency',secWins:'Show Wins',showWinsToggle:'Show Wins',kbSkinChanger:'Toggle Skin Changer',kbAboveOthers:'Toggle Above Others',kbBelowOthers:'Toggle Below Others',kbNoTransparency:'Toggle No Transparency',kbShowWins:'Toggle Show Wins'},ru:{general:'Общее',graphics:'Графика',movement:'Движение',keybinds:'Клавиши',config:'Конфиг',secZoom:'Зум',zoomToggle:'Кастомный зум',zoomLevel:'Уровень зума',secTurnSpeed:'Скорость поворота',turnSpeed:'Скорость поворота',turnIntensity:'Интенсивность поворота',turnResolver:'Резолвер поворота',secKeybinds:'Клавиши',kbTurnSpeed:'Вкл/выкл поворот',kbHide:'Скрыть панель',kbZoom:'Вкл/выкл зум',secConfig:'Конфигурация',cfgSave:'Сохранить конфиг',cfgReset:'Сбросить конфиг',secHideWorld:'Скрыть мир',hideWorldToggle:'Скрыть мир',hideWorldColor:'Цвет фона',kbHideWorld:'Вкл/выкл скрыть мир',secAllDragons:'Все драконы',allDragonsToggle:'Все драконы',kbAllDragons:'Вкл/выкл всех драконов',secPerfMode:'Режим произв.',perfModeToggle:'Режим произв.',kbPerfMode:'Вкл/выкл произв.',secSkinChanger:'Скинчейнджер',skinChangerToggle:'Скинчейнджер',skinSelect:'Скин',refreshSkins:'Обновить скины',secLayering:'Слои',aboveOthersToggle:'Поверх остальных',belowOthersToggle:'Под остальными',secTransparency:'Прозрачность',noTransparencyToggle:'Без прозрачности',secWins:'Победы',showWinsToggle:'Показывать победы',kbSkinChanger:'Вкл/выкл скинчейнджер',kbAboveOthers:'Вкл/выкл поверх остальных',kbBelowOthers:'Вкл/выкл под остальными',kbNoTransparency:'Вкл/выкл без прозрачности',kbShowWins:'Вкл/выкл победы'},tr:{general:'Genel',graphics:'Grafik',movement:'Hareket',keybinds:'Tuşlar',config:'Ayarlar',secZoom:'Yakınlaştır',zoomToggle:'Özel Zoom',zoomLevel:'Zoom Seviyesi',secTurnSpeed:'Dönüş Hızı',turnSpeed:'Dönüş Hızı',turnIntensity:'Dönüş Yoğunluğu',turnResolver:'Dönüş Çözücü',secKeybinds:'Tuşlar',kbTurnSpeed:'Dönüş Hızı Aç/Kapat',kbHide:'Paneli Gizle',kbZoom:'Zoom Aç/Kapat',secConfig:'Yapılandırma',cfgSave:'Kaydet',cfgReset:'Sıfırla',secHideWorld:'Dünyayı Gizle',hideWorldToggle:'Dünyayı Gizle',hideWorldColor:'Arka Plan Rengi',kbHideWorld:'Dünyayı Gizle Aç/Kapat',secAllDragons:'Tüm Ejderhalar',allDragonsToggle:'Tüm Ejderhalar',kbAllDragons:'Tüm Ejderhaları Aç/Kapat',secPerfMode:'Performans Modu',perfModeToggle:'Performans Modu',kbPerfMode:'Performans Modu Aç/Kapat',secSkinChanger:'Kostüm Değiştirici',skinChangerToggle:'Kostüm Değiştirici',skinSelect:'Kostüm',refreshSkins:'Kostümleri Yenile',secLayering:'Katmanlar',aboveOthersToggle:'Diğerlerinin Üstünde',belowOthersToggle:'Diğerlerinin Altında',secTransparency:'Şeffaflık',noTransparencyToggle:'Şeffaflık Yok',secWins:'Galibiyetleri Göster',showWinsToggle:'Galibiyetleri Göster',kbSkinChanger:'Kostüm Değiştirici Aç/Kapat',kbAboveOthers:'Üstte Aç/Kapat',kbBelowOthers:'Altta Aç/Kapat',kbNoTransparency:'Şeffaflık Yok Aç/Kapat',kbShowWins:'Galibiyetleri Aç/Kapat'},ar:{general:'عام',graphics:'رسومات',movement:'حركة',keybinds:'مفاتيح',config:'إعداد',secZoom:'تكبير',zoomToggle:'تكبير مخصص',zoomLevel:'مستوى التكبير',secTurnSpeed:'سرعة الدوران',turnSpeed:'سرعة الدوران',turnIntensity:'شدة سرعة الدوران',turnResolver:'محلل الدوران',secKeybinds:'مفاتيح',kbTurnSpeed:'تبديل سرعة الدوران',kbHide:'إخفاء اللوحة',kbZoom:'تبديل التكبير',secConfig:'التكوين',cfgSave:'حفظ الإعدادات',cfgReset:'إعادة تعيين',secHideWorld:'إخفاء العالم',hideWorldToggle:'إخفاء العالم',hideWorldColor:'لون الخلفية',kbHideWorld:'تبديل إخفاء العالم',secAllDragons:'كل التنانين',allDragonsToggle:'كل التنانين',kbAllDragons:'تبديل كل التنانين',secPerfMode:'وضع الأداء',perfModeToggle:'وضع الأداء',kbPerfMode:'تبديل الأداء',secSkinChanger:'مغير المظهر',skinChangerToggle:'مغير المظهر',skinSelect:'المظهر',refreshSkins:'تحديث المظاهر',secLayering:'الطبقات',aboveOthersToggle:'فوق الآخرين',belowOthersToggle:'تحت الآخرين',secTransparency:'الشفافية',noTransparencyToggle:'بدون شفافية',secWins:'عرض الانتصارات',showWinsToggle:'عرض الانتصارات',kbSkinChanger:'تبديل مغير المظهر',kbAboveOthers:'تبديل فوق الآخرين',kbBelowOthers:'تبديل تحت الآخرين',kbNoTransparency:'تبديل بدون شفافية',kbShowWins:'تبديل عرض الانتصارات'},de:{general:'Allgemein',graphics:'Grafik',movement:'Bewegung',keybinds:'Tasten',config:'Konfig',secZoom:'Zoom',zoomToggle:'Benutzerdefinierter Zoom',zoomLevel:'Zoomstufe',secTurnSpeed:'Drehgeschwindigkeit',turnSpeed:'Drehgeschwindigkeit',turnIntensity:'Drehintensität',turnResolver:'Dreh-Resolver',secKeybinds:'Tasten',kbTurnSpeed:'Drehgeschw. umschalten',kbHide:'Panel ausblenden',kbZoom:'Zoom umschalten',secConfig:'Konfiguration',cfgSave:'Speichern',cfgReset:'Zurücksetzen',secHideWorld:'Welt ausblenden',hideWorldToggle:'Welt ausblenden',hideWorldColor:'Hintergrundfarbe',kbHideWorld:'Welt ausblenden umschalten',secAllDragons:'Alle Drachen',allDragonsToggle:'Alle Drachen',kbAllDragons:'Alle Drachen umschalten',secPerfMode:'Leistungsmodus',perfModeToggle:'Leistungsmodus',kbPerfMode:'Leistungsmodus umschalten',secSkinChanger:'Skin-Changer',skinChangerToggle:'Skin-Changer',skinSelect:'Skin',refreshSkins:'Skins aktualisieren',secLayering:'Ebenen',aboveOthersToggle:'Über anderen',belowOthersToggle:'Below Others',secTransparency:'Transparenz',noTransparencyToggle:'Keine Transparenz',secWins:'Siege anzeigen',showWinsToggle:'Siege anzeigen',kbSkinChanger:'Skin-Changer umschalten',kbAboveOthers:'Über anderen umschalten',kbBelowOthers:'Unter anderen umschalten',kbNoTransparency:'Keine Transparenz umschalten',kbShowWins:'Siege umschalten'},fr:{general:'Général',graphics:'Graphismes',movement:'Mouvement',keybinds:'Touches',config:'Config',secZoom:'Zoom',zoomToggle:'Zoom personnalisé',zoomLevel:'Niveau de zoom',secTurnSpeed:'Vitesse de rotation',turnSpeed:'Vitesse de rotation',turnIntensity:'Intensité de rotation',turnResolver:'Résolveur de rotation',secKeybinds:'Touches',kbTurnSpeed:'Vitesse de rotation',kbHide:'Masquer le panneau',kbZoom:'Basculer zoom',secConfig:'Configuration',cfgSave:'Enregistrer',cfgReset:'Réinitialiser',secHideWorld:'Masquer le monde',hideWorldToggle:'Masquer le monde',hideWorldColor:'Couleur de fond',kbHideWorld:'Masquer le monde',secAllDragons:'Tous les dragons',allDragonsToggle:'Tous les dragons',kbAllDragons:'Tous les dragons',secPerfMode:'Mode performance',perfModeToggle:'Mode performance',kbPerfMode:'Mode performance',secSkinChanger:'Changeur de skin',skinChangerToggle:'Changeur de skin',skinSelect:'Skin',refreshSkins:'Actualiser les skins',secLayering:'Superposition',aboveOthersToggle:'Au-dessus des autres',belowOthersToggle:'En-dessous des autres',secTransparency:'Transparence',noTransparencyToggle:'Sans transparence',secWins:'Afficher victoires',showWinsToggle:'Afficher victoires',kbSkinChanger:'Changeur de skin',kbAboveOthers:'Au-dessus des autres',kbBelowOthers:'En-dessous des autres',kbNoTransparency:'Sans transparence',kbShowWins:'Afficher victoires'},es:{general:'General',graphics:'Gráficos',movement:'Movimiento',keybinds:'Teclas',config:'Config',secZoom:'Zoom',zoomToggle:'Zoom personalizado',zoomLevel:'Nivel de zoom',secTurnSpeed:'Velocidad de giro',turnSpeed:'Velocidad de giro',turnIntensity:'Intensidad de giro',turnResolver:'Resolvedor de giro',secKeybinds:'Teclas',kbTurnSpeed:'Velocidad de giro',kbHide:'Ocultar panel',kbZoom:'Alternar zoom',secConfig:'Configuración',cfgSave:'Guardar',cfgReset:'Restablecer',secHideWorld:'Ocultar mundo',hideWorldToggle:'Ocultar mundo',hideWorldColor:'Color de fondo',kbHideWorld:'Ocultar mundo',secAllDragons:'Todos los dragones',allDragonsToggle:'Todos los dragones',kbAllDragons:'Todos los dragones',secPerfMode:'Modo rendimiento',perfModeToggle:'Modo rendimiento',kbPerfMode:'Modo rendimiento',secSkinChanger:'Cambiador de skins',skinChangerToggle:'Cambiador de skins',skinSelect:'Skin',refreshSkins:'Actualizar skins',secLayering:'Capas',aboveOthersToggle:'Por encima de otros',belowOthersToggle:'Por debajo de otros',secTransparency:'Transparencia',noTransparencyToggle:'Sin transparencia',secWins:'Mostrar victorias',showWinsToggle:'Mostrar victorias',kbSkinChanger:'Cambiador de skins',kbAboveOthers:'Por encima de otros',kbBelowOthers:'Por debajo de otros',kbNoTransparency:'Sin transparencia',kbShowWins:'Mostrar victorias'},};let currentLang='en';let currentTab='tab-general';function t(k){return(LANG[currentLang]||LANG.en)[k]||LANG.en[k]||k}
+const root=document.createElement('div');root.id='xploitio-panel';root.className='battel-void-root';root.innerHTML=`
+          <div class="battel-void-shell">
+            <div class="battel-void-titlebar" id="xp-titlebar">
+              <div class="battel-void-brand">
+                <span class="xn-title-icon">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">
+                    <line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/>
+                  </svg>
+                </span>
+                <div class="battel-void-title">Xeno</div>
+              </div>
+              <div class="xn-titlebar-right">
+                <select class="xn-lang-select" id="xp-lang-select">
+                  <option value="en">🇺🇸 EN</option>
+                  <option value="ru">🇷🇺 RU</option>
+                  <option value="tr">🇹🇷 TR</option>
+                  <option value="ar">🇸🇦 AR</option>
+                  <option value="de">🇩🇪 DE</option>
+                  <option value="fr">🇫🇷 FR</option>
+                  <option value="es">🇪🇸 ES</option>
+                </select>
+                <button type="button" class="battel-void-toggle" id="xp-toggle-btn">
+                  <div class="xn-burger"><span></span><span></span><span></span></div>
+                </button>
+              </div>
+            </div>
+            <div class="battel-void-main">
+              <aside class="battel-void-sidebar" id="xp-sidebar"></aside>
+              <section class="battel-void-content" id="xp-content"></section>
+            </div>
+          </div>
+        `;document.body.appendChild(root);const sidebar=root.querySelector('#xp-sidebar');const content=root.querySelector('#xp-content');TAB_DEFS.forEach((def,i)=>{const btn=document.createElement('button');btn.type='button';btn.className='battel-void-tab'+(i===0?' active':'');btn.dataset.target=def.id;btn.dataset.labelKey=def.lk;btn.innerHTML=`<span class="battel-void-tab-ic">${ICONS[def.id]}</span><span class="xp-tab-label">${t(def.lk)}</span>`;sidebar.appendChild(btn);const page=document.createElement('div');page.id=def.id;page.className='battel-void-page battel-void-page-grid';page.style.display=i===0?'grid':'none';content.appendChild(page)});sidebar.querySelectorAll('.battel-void-tab').forEach(btn=>{btn.onclick=()=>{sidebar.querySelectorAll('.battel-void-tab').forEach(b=>b.classList.remove('active'));content.querySelectorAll('.battel-void-page').forEach(p=>p.style.display='none');btn.classList.add('active');currentTab=btn.dataset.target;document.getElementById(currentTab).style.display='grid'}});function row(label,inputHTML){return `<div class="battel-void-row"><span class="battel-void-label">${label}</span><div class="battel-void-input-wrap">${inputHTML}</div></div>`}
+function chk(id,checked){return `<input type="checkbox" id="xp-${id}"${checked?' checked':''}>`}
+function sldr(id,min,max,step,val){return `<input type="range" id="xp-${id}" min="${min}" max="${max}" step="${step}" value="${val}"><input type="number" class="xp-sl-val" id="xp-${id}-val" min="${min}" max="${max}" step="${step}" value="${val}">`}
+function ddrop(id,opts,selected){const html=opts.map(([v,l])=>`<option value="${v}"${v===selected?' selected':''}>${l}</option>`).join('');return `<select id="xp-${id}" style="background:#141414;color:#e8e8e8;border:1px solid #2a2a2a;border-radius:4px;padding:4px 8px;font:500 11px 'Viga',sans-serif;cursor:pointer;outline:none;">${html}</select>`}
+function kbind(id){return `<input type="text" class="xp-keybind" id="xp-${id}" maxlength="1">`}
+function sec(labelKey){return `<div class="battel-void-section-title" style="grid-column:1/-1" data-sec="${labelKey}">${t(labelKey)}</div>`}
+function rebuildContent(){sidebar.querySelectorAll('.battel-void-tab').forEach(btn=>{const sp=btn.querySelector('.xp-tab-label');if(sp)sp.textContent=t(btn.dataset.labelKey);});document.getElementById('tab-general').innerHTML=`
+              ${sec('secZoom')}
+              ${row(t('zoomToggle'), chk('zoomEnabled', xeno.zoomEnabled))}
+              ${row(t('zoomLevel'),  sldr('zoomLevel', 0.5, 3.0, 0.1, xeno.zoomLevel))}
+              ${sec('secWins')}
+              ${row(t('showWinsToggle'), chk('showWinsEnabled', xeno.showWinsEnabled))}
+            `;document.getElementById('tab-graphics').innerHTML=`
+              ${sec('secSkinChanger')}
+              ${row(t('skinChangerToggle'), chk('skinChangerEnabled', xeno.skinChangerEnabled))}
+              ${row(t('skinSelect'), `<select id="xp-skinChangerSelected" style="background:#141414;color:#e8e8e8;border:1px solid #2a2a2a;border-radius:4px;padding:4px 8px;font:500 11px 'Viga',sans-serif;cursor:pointer;outline:none;max-width:180px;"></select><button type="button" class="xp-cfg-btn" id="xp-skin-refresh" style="padding:4px 8px;flex:0 0 auto;font-size:11px;">${t('refreshSkins')}</button>`)}
+              <div style="grid-column:1/-1;font-size:11px;color:var(--xn-text-dim);padding:2px 10px;" id="xp-skin-status"></div>
+              ${sec('secAllDragons')}
+              ${row(t('allDragonsToggle'), chk('allDragonsEnabled', xeno.allDragonsEnabled))}
+              ${sec('secTransparency')}
+              ${row(t('noTransparencyToggle'), chk('noTransparencyEnabled', xeno.noTransparencyEnabled))}
+              ${sec('secHideWorld')}
+              ${row(t('hideWorldToggle'), chk('hideWorldEnabled', xeno.hideWorldEnabled))}
+              ${row(t('hideWorldColor'),  `<input type="color" class="xp-color-pick" id="xp-hideWorldColor" value="${xeno.hideWorldColor}">`)}
+              ${sec('secPerfMode')}
+              ${row(t('perfModeToggle'), chk('perfModeEnabled', xeno.perfModeEnabled))}
+            `;document.getElementById('tab-movement').innerHTML=`
+              ${sec('secTurnSpeed')}
+              ${row(t('turnSpeed'),    chk('turnSpeedEnabled', xeno.turnSpeedEnabled))}
+              ${row(t('turnIntensity'), sldr('turnSpeed', 0, 540, 1, xeno.turnSpeed))}
+              ${row(t('turnResolver'), ddrop('turnStyle', [
+                    ['linear',   'Linear (Default)'],
+                    ['ease-out', 'Ease Out'],
+                    ['ease-in',  'Ease In'],
+                    ['instant',  'Instant'],
+                ], xeno.turnStyle))}
+              ${sec('secLayering')}
+              ${row(t('aboveOthersToggle'), chk('aboveOthersEnabled', xeno.aboveOthersEnabled))}
+              ${row(t('belowOthersToggle'), chk('belowOthersEnabled', xeno.belowOthersEnabled))}
+            `;document.getElementById('tab-keybinds').innerHTML=`
+              ${sec('secKeybinds')}
+              ${row(t('kbZoom'),           kbind('keyZoom'))}
+              ${row(t('kbTurnSpeed'),      kbind('keyTurnSpeed'))}
+              ${row(t('kbHide'),           kbind('keyHidePanel'))}
+              ${row(t('kbHideWorld'),      kbind('keyHideWorld'))}
+              ${row(t('kbAllDragons'),     kbind('keyAllDragons'))}
+              ${row(t('kbPerfMode'),       kbind('keyPerfMode'))}
+              ${row(t('kbSkinChanger'),    kbind('keySkinChanger'))}
+              ${row(t('kbAboveOthers'),    kbind('keyAboveOthers'))}
+              ${row(t('kbBelowOthers'),    kbind('keyBelowOthers'))}
+              ${row(t('kbNoTransparency'), kbind('keyNoTransparency'))}
+              ${row(t('kbShowWins'),       kbind('keyShowWins'))}
+            `;document.getElementById('tab-config').innerHTML=`
+              ${sec('secConfig')}
+              <div class="xp-cfg-row">
+                <button type="button" class="xp-cfg-btn" id="xp-cfg-save">${t('cfgSave')}</button>
+                <button type="button" class="xp-cfg-btn danger" id="xp-cfg-reset">${t('cfgReset')}</button>
+              </div>
+            `;content.querySelectorAll('.battel-void-page').forEach(p=>{p.style.display=p.id===currentTab?'grid':'none'});rewire()}
+function rewire(){const zToggle=document.getElementById('xp-zoomEnabled');if(zToggle){zToggle.checked=xeno.zoomEnabled;zToggle.onchange=()=>{xeno.zoomEnabled=zToggle.checked;if(!xeno.zoomEnabled){const _g=getGame();if(_g?.settings?.rendering)_g.settings.rendering.zoom=1;if(_g?.camera){const _res=_g?.loop?.resolution??1;_g.camera.zoom=1*_res;if(_g.camera.targetZoom!==undefined)_g.camera.targetZoom=1*_res}}}}
+const zSl=document.getElementById('xp-zoomLevel');const zVal=document.getElementById('xp-zoomLevel-val');if(zSl&&zVal){zSl.value=xeno.zoomLevel;zVal.value=xeno.zoomLevel;zSl.oninput=()=>{xeno.zoomLevel=parseFloat(zSl.value);zVal.value=xeno.zoomLevel;xenoApplyZoom()};zVal.onchange=()=>{let v=parseFloat(zVal.value);if(isNaN(v))return;v=Math.max(0.5,Math.min(3.0,parseFloat(v.toFixed(1))));xeno.zoomLevel=v;zSl.value=v;zVal.value=v;xenoApplyZoom()};zVal.addEventListener('keydown',e=>{if(e.key==='Enter'){zVal.onchange();zVal.blur()}})}
+const tsToggle=document.getElementById('xp-turnSpeedEnabled');if(tsToggle){tsToggle.checked=xeno.turnSpeedEnabled;tsToggle.onchange=()=>{xeno.turnSpeedEnabled=tsToggle.checked}}
+const tsSl=document.getElementById('xp-turnSpeed');const tsVal=document.getElementById('xp-turnSpeed-val');if(tsSl&&tsVal){tsSl.value=xeno.turnSpeed;tsVal.value=xeno.turnSpeed;tsSl.oninput=()=>{xeno.turnSpeed=parseInt(tsSl.value);tsVal.value=tsSl.value};tsVal.onchange=()=>{let v=Math.max(0,Math.min(540,parseInt(tsVal.value)||120));xeno.turnSpeed=v;tsSl.value=v;tsVal.value=v}}
+const tsSel=document.getElementById('xp-turnStyle');if(tsSel){tsSel.value=xeno.turnStyle;tsSel.onchange=()=>{xeno.turnStyle=tsSel.value}}
+const swToggle=document.getElementById('xp-showWinsEnabled');if(swToggle){swToggle.checked=xeno.showWinsEnabled;swToggle.onchange=()=>{xeno.showWinsEnabled=swToggle.checked}}
+const scToggle=document.getElementById('xp-skinChangerEnabled');if(scToggle){scToggle.checked=xeno.skinChangerEnabled;scToggle.onchange=()=>{xeno.skinChangerEnabled=scToggle.checked}}
+const scSel=document.getElementById('xp-skinChangerSelected');if(scSel){updateSkinDropdown();scSel.onmousedown=()=>{updateSkinDropdown();if(G.state!=='loaded')loadSkinCatalog(!1);};scSel.onfocus=()=>{updateSkinDropdown();if(G.state!=='loaded')loadSkinCatalog(!1);};scSel.onchange=()=>{xeno.skinChangerSelected=scSel.value;const g=getGame();const ani=getAnimalTypeStr(g?.player);if(ani){xeno.skinChangerChoices[ani]=scSel.value}
+xenoSave()}}
+const scRef=document.getElementById('xp-skin-refresh');if(scRef){scRef.onclick=()=>{loadSkinCatalog(!0)}}
+loadSkinCatalog(!1);const ntToggle=document.getElementById('xp-noTransparencyEnabled');if(ntToggle){ntToggle.checked=xeno.noTransparencyEnabled;ntToggle.onchange=()=>{xeno.noTransparencyEnabled=ntToggle.checked}}
+const aoToggle=document.getElementById('xp-aboveOthersEnabled');const boToggle=document.getElementById('xp-belowOthersEnabled');if(aoToggle){aoToggle.checked=xeno.aboveOthersEnabled;aoToggle.onchange=()=>{xeno.aboveOthersEnabled=aoToggle.checked;if(xeno.aboveOthersEnabled){xeno.belowOthersEnabled=!1;if(boToggle)boToggle.checked=!1}}}
+if(boToggle){boToggle.checked=xeno.belowOthersEnabled;boToggle.onchange=()=>{xeno.belowOthersEnabled=boToggle.checked;if(xeno.belowOthersEnabled){xeno.aboveOthersEnabled=!1;if(aoToggle)aoToggle.checked=!1}}}
+const adToggle=document.getElementById('xp-allDragonsEnabled');if(adToggle){adToggle.checked=xeno.allDragonsEnabled;adToggle.onchange=()=>{xeno.allDragonsEnabled=adToggle.checked}}
+const hwToggle=document.getElementById('xp-hideWorldEnabled');if(hwToggle){hwToggle.checked=xeno.hideWorldEnabled;hwToggle.onchange=()=>{xeno.hideWorldEnabled=hwToggle.checked;xenoApplyHideWorld()}}
+const perfToggle=document.getElementById('xp-perfModeEnabled');if(perfToggle){perfToggle.checked=xeno.perfModeEnabled;perfToggle.onchange=()=>{xeno.perfModeEnabled=perfToggle.checked;if(window.PIXI&&window.PIXI.settings){window.PIXI.settings.GC_MODE=xeno.perfModeEnabled?1:0}}}
+const hwColor=document.getElementById('xp-hideWorldColor');if(hwColor){hwColor.value=xeno.hideWorldColor;hwColor.oninput=()=>{xeno.hideWorldColor=hwColor.value;if(xeno.hideWorldEnabled)xenoApplyHideWorld();}}['keyZoom','keyTurnSpeed','keyHidePanel','keyHideWorld','keyAllDragons','keyPerfMode','keySkinChanger','keyAboveOthers','keyBelowOthers','keyNoTransparency','keyShowWins'].forEach(id=>{const el=document.getElementById('xp-'+id);if(!el)return;el.value=xeno[id]||'';el.addEventListener('keydown',e=>{e.stopPropagation();e.preventDefault();if(['CapsLock','Tab','Escape','Enter'].includes(e.key))return;let k=e.key.toLowerCase();if(k==='backspace'||k==='delete')k='';el.value=k;xeno[id]=k;el.blur()})});const cfgSaveBtn=document.getElementById('xp-cfg-save');if(cfgSaveBtn){cfgSaveBtn.onclick=()=>{xenoSave();alert('Saved')}}
+const cfgResetBtn=document.getElementById('xp-cfg-reset');if(cfgResetBtn){cfgResetBtn.onclick=()=>{if(!confirm('Reset all modpack settings to default?'))return;Object.keys(XENO_DEFAULTS).forEach(k=>{xeno[k]=XENO_DEFAULTS[k]});xeno.skinChangerChoices={};try{localStorage.removeItem(XENO_STORAGE_KEY)}catch(e){}
+{const _g=getGame();if(_g?.settings?.rendering)_g.settings.rendering.zoom=1;if(_g?.camera){const res=_g?.loop?.resolution??1;_g.camera.zoom=1*res;if(_g.camera.targetZoom!==undefined)_g.camera.targetZoom=1*res;if(_g.camera.scale!==undefined)_g.camera.scale=1*res}}
+xenoApplyHideWorld();if(window.PIXI&&window.PIXI.settings){window.PIXI.settings.GC_MODE=0}
+rebuildContent()}}}
+rebuildContent();document.getElementById('xp-lang-select').onchange=function(){currentLang=this.value;rebuildContent()};{const tb=document.getElementById('xp-titlebar');let drag=!1,ox=0,oy=0;tb.onmousedown=e=>{drag=!0;const r=root.getBoundingClientRect();ox=e.clientX-r.left;oy=e.clientY-r.top};document.addEventListener('mousemove',e=>{if(!drag)return;root.style.left=(e.clientX-ox)+'px';root.style.top=(e.clientY-oy)+'px';root.style.right='auto'});document.addEventListener('mouseup',()=>drag=!1)}
+function togglePanel(){const vis=root.style.visibility!=='hidden';root.style.opacity=vis?'0':'1';root.style.visibility=vis?'hidden':'visible';root.style.pointerEvents=vis?'none':'all'}
+document.getElementById('xp-toggle-btn').onclick=togglePanel;window.addEventListener('keydown',e=>{const pathTarget=e.composedPath?e.composedPath()[0]:e.target;const target=pathTarget||e.target||document.activeElement;if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.tagName==='SELECT'||target.isContentEditable))return;if(document.activeElement&&(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA'||document.activeElement.tagName==='SELECT'||document.activeElement.isContentEditable))return;const ci=document.getElementById('chatInput');if(ci&&(target===ci||document.activeElement===ci))return;const k=e.key.toLowerCase();if(xeno.keyHidePanel&&k===xeno.keyHidePanel){togglePanel();return}
+if(xeno.keyZoom&&k===xeno.keyZoom){xeno.zoomEnabled=!xeno.zoomEnabled;const el=document.getElementById('xp-zoomEnabled');if(el)el.checked=xeno.zoomEnabled;if(!xeno.zoomEnabled){const _g=getGame();if(_g?.settings?.rendering)_g.settings.rendering.zoom=1;if(_g?.camera){const res=_g?.loop?.resolution??1;_g.camera.zoom=1*res;if(_g.camera.targetZoom!==undefined)_g.camera.targetZoom=1*res}}
+showToggleHud(t('zoomToggle'),xeno.zoomEnabled)}
+if(xeno.keyTurnSpeed&&k===xeno.keyTurnSpeed){xeno.turnSpeedEnabled=!xeno.turnSpeedEnabled;const el=document.getElementById('xp-turnSpeedEnabled');if(el)el.checked=xeno.turnSpeedEnabled;showToggleHud(t('turnSpeed'),xeno.turnSpeedEnabled)}
+if(xeno.keyHideWorld&&k===xeno.keyHideWorld){xeno.hideWorldEnabled=!xeno.hideWorldEnabled;const el=document.getElementById('xp-hideWorldEnabled');if(el)el.checked=xeno.hideWorldEnabled;xenoApplyHideWorld();showToggleHud(t('hideWorldToggle'),xeno.hideWorldEnabled)}
+if(xeno.keyAllDragons&&k===xeno.keyAllDragons){xeno.allDragonsEnabled=!xeno.allDragonsEnabled;const el=document.getElementById('xp-allDragonsEnabled');if(el)el.checked=xeno.allDragonsEnabled;showToggleHud(t('allDragonsToggle'),xeno.allDragonsEnabled)}
+if(xeno.keyPerfMode&&k===xeno.keyPerfMode){xeno.perfModeEnabled=!xeno.perfModeEnabled;const el=document.getElementById('xp-perfModeEnabled');if(el)el.checked=xeno.perfModeEnabled;if(window.PIXI&&window.PIXI.settings){window.PIXI.settings.GC_MODE=xeno.perfModeEnabled?1:0}
+showToggleHud(t('perfModeToggle'),xeno.perfModeEnabled)}
+if(xeno.keySkinChanger&&k===xeno.keySkinChanger){xeno.skinChangerEnabled=!xeno.skinChangerEnabled;const el=document.getElementById('xp-skinChangerEnabled');if(el)el.checked=xeno.skinChangerEnabled;showToggleHud(t('skinChangerToggle'),xeno.skinChangerEnabled)}
+if(xeno.keyAboveOthers&&k===xeno.keyAboveOthers){xeno.aboveOthersEnabled=!xeno.aboveOthersEnabled;if(xeno.aboveOthersEnabled)xeno.belowOthersEnabled=!1;const elA=document.getElementById('xp-aboveOthersEnabled');const elB=document.getElementById('xp-belowOthersEnabled');if(elA)elA.checked=xeno.aboveOthersEnabled;if(elB)elB.checked=xeno.belowOthersEnabled;showToggleHud(t('aboveOthersToggle'),xeno.aboveOthersEnabled)}
+if(xeno.keyBelowOthers&&k===xeno.keyBelowOthers){xeno.belowOthersEnabled=!xeno.belowOthersEnabled;if(xeno.belowOthersEnabled)xeno.aboveOthersEnabled=!1;const elA=document.getElementById('xp-aboveOthersEnabled');const elB=document.getElementById('xp-belowOthersEnabled');if(elA)elA.checked=xeno.aboveOthersEnabled;if(elB)elB.checked=xeno.belowOthersEnabled;showToggleHud(t('belowOthersToggle'),xeno.belowOthersEnabled)}
+if(xeno.keyNoTransparency&&k===xeno.keyNoTransparency){xeno.noTransparencyEnabled=!xeno.noTransparencyEnabled;const el=document.getElementById('xp-noTransparencyEnabled');if(el)el.checked=xeno.noTransparencyEnabled;showToggleHud(t('noTransparencyToggle'),xeno.noTransparencyEnabled)}
+if(xeno.keyShowWins&&k===xeno.keyShowWins){xeno.showWinsEnabled=!xeno.showWinsEnabled;const el=document.getElementById('xp-showWinsEnabled');if(el)el.checked=xeno.showWinsEnabled;showToggleHud(t('showWinsToggle'),xeno.showWinsEnabled)}});['mousedown','click','contextmenu','wheel','touchstart','keydown','keyup','keypress'].forEach(ev=>{root.addEventListener(ev,e=>e.stopPropagation())})}
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',buildGUI,{once:!0})}else{buildGUI()}})()"""
+
+def find_game_obj(src: str) -> tuple[str, str]:
+    """Finds the local variable name representing the mope.io global game object (e.g. `Ro`)."""
+    m = re.search(r'window\.([A-Za-z0-9_$]+)\s*=\s*\1[;,]', src)
+    if m:
+        return m.group(1), "Found via explicit window assignment (window.X = X)"
+
+    patterns = [
+        (r'\b([A-Za-z0-9_$]+)\.network\.readyState\s*===', "network.readyState check"),
+        (r'\b([A-Za-z0-9_$]+)\.config\.s3PublicUrl', "config.s3PublicUrl access"),
+        (r'\b([A-Za-z0-9_$]+)\.audio\.play\(', "audio.play() call"),
+        (r'\b([A-Za-z0-9_$]+)\.player\s*&&', "player presence check")
+    ]
+    
+    for p, desc in patterns:
+        matches = re.findall(p, src)
+        if matches:
+            most_common = Counter(matches).most_common(1)[0][0]
+            return most_common, f"Found via {desc} (frequency: {matches.count(most_common)})"
+            
+    return "Ro", "Failed to detect structurally, using fallback 'Ro'"
+
+def fix_relative_imports(src: str, base_url: str = "https://mope.io/") -> tuple[str, int]:
+    """
+    Replaces relative imports like "./packages/XXX.js" 
+    with absolute URLs like "https://mope.io/packages/XXX.js".
+    Fixes the Vite dependency mapping arrays and ES6 import statements.
+    """
+    pattern = r'["\']\.\/([^"\']+)["\']'
+    new_src, count = re.subn(pattern, rf'"{base_url}\1"', src)
+    return new_src, count
+
+def validate_js_syntax(file_path: Path) -> bool:
+    """Runs `node -c` to validate the syntax of the generated file."""
+    if not shutil.which("node"):
+        print("  [!] Node.js not found in PATH, skipping syntax validation.")
+        return True
+        
+    proc = subprocess.run(["node", "-c", str(file_path)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"  [!] Syntax validation failed!\n{proc.stderr.strip()}")
+        return False
+    print("  Syntax validation passed successfully.")
+    return True
+
+def inject(src: str) -> str:
+    """Injects the Xeno mod block into the mope.io source."""
+    print("=== AUTO-DETECT REPORT ===")
+    
+    src, import_count = fix_relative_imports(src)
+    if import_count > 0:
+        print(f"  Vite relative imports: Patched {import_count} file paths to absolute URLs (https://mope.io/...).")
+    else:
+        print("  Vite relative imports: No matching relative paths found. Backup: Assuming imports are already absolute.")
+
+    game_obj, desc = find_game_obj(src)
+    print(f"  Game Object:           '{game_obj}' ({desc})")
+    
+    print("  OK all critical fields processed.")
+    print("==========================")
+
+    mod = XENO_MOD
+    if game_obj != "Ro":
+        mod = mod.replace("typeof Ro", f"typeof {game_obj}")
+        mod = re.sub(r'\?\s*Ro\s*:\s*null', f'? {game_obj} : null', mod)
+        mod = mod.replace("$=Ro;", f"$={game_obj};")
+
+    mod_signature = "(function(){'use strict';const adblockStyle=document.createElement('style');"
+    last_idx = src.rfind(mod_signature)
+    
+    if last_idx != -1 and last_idx > len(src) - 250000:
+        print("  Idempotency check: Removing existing mod payload.")
+        src = src[:last_idx]
+
+    return src.rstrip() + "\n" + mod
+
+def main():
+    ap = argparse.ArgumentParser(description="Auto-port Xeno client into mope.io")
+    ap.add_argument("script", help="path to new client .js")
+    ap.add_argument("-o", "--output", help="output path (default: <name>_with_mod.js)")
+    args = ap.parse_args()
+
+    src = Path(args.script).read_text(encoding="utf-8", errors="ignore")
+    out = inject(src)
+
+    if args.output:
+        out_p = Path(args.output)
+    else:
+        out_p = Path(args.script).with_name(Path(args.script).stem + "_with_mod.js")
+        
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    out_p.write_text(out, encoding="utf-8")
+    
+    if not validate_js_syntax(out_p):
+        print("\n[!] Aborting: Generated JS file contains syntax errors. The file has been kept for debugging.")
+        sys.exit(1)
+        
+    print(f"\nWritten: {out_p}")
+    print("Mod initialized. Hotkeys handled via GUI in-game.")
+
+if __name__ == "__main__":
+    main()
