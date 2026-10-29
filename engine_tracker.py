@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -7,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -22,6 +24,10 @@ NODE_MEMORY_MB = 8192
 
 AUTO_PORT_SCRIPT = Path(__file__).parent / "engine_port.py"
 FULL_JS = Path(__file__).parent / "mope_full.js"
+
+EXTENSION_DIR = Path(__file__).parent / "extension"
+
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 AUTO_PORT_TIMEOUT = 900
 AUTO_PORT_STATUS_SECONDS = 15
@@ -207,16 +213,85 @@ def run_auto_port(out_dir: Path) -> Path | None:
         return None
 
     shutil.move(str(tmp_out), str(client))
-    publish_full(client)
-    print(f"    Ready (webcrack + xeno mod): {client} ({client.stat().st_size:,} bytes)")
+    js_filename = Path(client.parent.name + ".js")
+    build_and_post_extension(client, str(js_filename))
+    print(f"    Ready (xeno mod): {client} ({client.stat().st_size:,} bytes)")
     return client
 
 
-def publish_full(client: Path) -> None:
+def update_rules_json(js_filename: str) -> None:
+    """Rewrites rules.json urlFilter to point at the current mope.io JS filename."""
+    rules_path = EXTENSION_DIR / "rules.json"
+    if not rules_path.exists():
+        print("    [!] rules.json not found in extension dir, skipping rules update")
+        return
+
+    rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    updated = False
+    for rule in rules:
+        if (rule.get("action", {}).get("type") == "redirect" and
+                rule.get("action", {}).get("redirect", {}).get("extensionPath") == "/index.js"):
+            current_filter = rule.get("condition", {}).get("urlFilter", "")
+            new_filter = f"||mope.io/{js_filename}"
+            if current_filter != new_filter:
+                rule["condition"]["urlFilter"] = new_filter
+                updated = True
+                print(f"    rules.json: updated urlFilter {current_filter!r} → {new_filter!r}")
+
+    if updated:
+        rules_path.write_text(json.dumps(rules, indent=2, ensure_ascii=False), encoding="utf-8")
+    else:
+        print("    rules.json: urlFilter already up to date")
+
+
+def build_and_post_extension(client: Path, js_filename: str) -> None:
+    """
+    1. Copies mope_full.js → extension/index.js
+    2. Updates rules.json with the new JS filename
+    3. Zips the entire extension folder
+    4. Posts the zip to Discord (file only, no message text)
+    """
+    if not EXTENSION_DIR.exists():
+        print(f"    [!] Extension dir not found at {EXTENSION_DIR} — skipping Discord post")
+        return
+s
+    index_js = EXTENSION_DIR / "index.js"
+    tmp_index = EXTENSION_DIR / "_index.js.tmp"
+    shutil.copyfile(client, tmp_index)
+    os.replace(tmp_index, index_js)
+    print(f"    extension/index.js updated ({index_js.stat().st_size:,} bytes)")
+
+    update_rules_json(js_filename)
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(EXTENSION_DIR.rglob("*")):
+            if f.is_file() and not f.name.endswith(".tmp"):
+                zf.write(f, f.relative_to(EXTENSION_DIR))
+    zip_bytes = zip_buf.getvalue()
+    print(f"    Extension zip built: {len(zip_bytes):,} bytes")
+
     tmp = FULL_JS.with_suffix(".js.tmp")
     shutil.copyfile(client, tmp)
-    os.replace(tmp, FULL_JS) 
+    os.replace(tmp, FULL_JS)
     print(f"    mope_full.js updated: {FULL_JS} ({FULL_JS.stat().st_size:,} bytes)")
+
+    if not DISCORD_WEBHOOK_URL:
+        print("    [!] DISCORD_WEBHOOK_URL not set, skipping notification")
+        return
+
+    try:
+        resp = requests.post(
+            DISCORD_WEBHOOK_URL,
+            files={"file": ("Xeno_Modpack.zip", zip_bytes, "application/zip")},
+            timeout=120,
+        )
+        if resp.status_code in (200, 204):
+            print("    Discord: extension zip posted to ⚡versions")
+        else:
+            print(f"    [!] Discord post failed: HTTP {resp.status_code} — {resp.text[:200]}")
+    except Exception as e:
+        print(f"    [!] Discord webhook error: {e}")
 
 
 def process_script(url: str) -> str | None:
@@ -303,9 +378,22 @@ def check_once() -> dict:
 
 
 def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--once", action="store_true", help="run once and exit (used by GitHub Actions)")
+    args = ap.parse_args()
+
     ensure_storage()
+
+    if args.once:
+        try:
+            result = check_once()
+            print(f"[{result['checked_at']}] patched {len(result['processed'])}, skipped {len(result['skipped'])}")
+        except Exception as e:
+            print(f"[!] Error: {e}")
+        return
+
     print(f"Mope.io Engine Tracker started. Data path: {STORAGE_DIR.resolve()}")
-    print("Saves webcrack-deobfuscated files appended with Xeno Mod Client.")
     print(f"Polling interval: {CHECK_INTERVAL_SECONDS // 60} min. Press Ctrl+C to exit.\n")
 
     while True:
