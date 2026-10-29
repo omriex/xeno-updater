@@ -25,6 +25,8 @@ NODE_MEMORY_MB = 8192
 AUTO_PORT_SCRIPT = Path(__file__).parent / "engine_port.py"
 FULL_JS = Path(__file__).parent / "mope_full.js"
 
+# Extension folder — all static files (icon.png, inject.js, manifest.json, rules.json, _metadata/)
+# must live here. index.js and rules.json get written/updated automatically.
 EXTENSION_DIR = Path(__file__).parent / "extension"
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -213,7 +215,8 @@ def run_auto_port(out_dir: Path) -> Path | None:
         return None
 
     shutil.move(str(tmp_out), str(client))
-    js_filename = Path(client.parent.name + ".js")
+    # js_filename is the original mope.io chunk name e.g. "CkocsJ3X.js"
+    js_filename = Path(client.parent.name + ".js")  # out_dir name is the stem of the original file
     build_and_post_extension(client, str(js_filename))
     print(f"    Ready (xeno mod): {client} ({client.stat().st_size:,} bytes)")
     return client
@@ -254,15 +257,18 @@ def build_and_post_extension(client: Path, js_filename: str) -> None:
     if not EXTENSION_DIR.exists():
         print(f"    [!] Extension dir not found at {EXTENSION_DIR} — skipping Discord post")
         return
-s
+
+    # 1. Atomic copy of patched JS into extension as index.js
     index_js = EXTENSION_DIR / "index.js"
     tmp_index = EXTENSION_DIR / "_index.js.tmp"
     shutil.copyfile(client, tmp_index)
     os.replace(tmp_index, index_js)
     print(f"    extension/index.js updated ({index_js.stat().st_size:,} bytes)")
 
+    # 2. Update rules.json to intercept the new filename
     update_rules_json(js_filename)
 
+    # 3. Zip the extension in memory
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in sorted(EXTENSION_DIR.rglob("*")):
@@ -271,11 +277,13 @@ s
     zip_bytes = zip_buf.getvalue()
     print(f"    Extension zip built: {len(zip_bytes):,} bytes")
 
+    # 4. Also keep mope_full.js up to date as before
     tmp = FULL_JS.with_suffix(".js.tmp")
     shutil.copyfile(client, tmp)
     os.replace(tmp, FULL_JS)
     print(f"    mope_full.js updated: {FULL_JS} ({FULL_JS.stat().st_size:,} bytes)")
 
+    # 5. Post to Discord — zip file only, zero message text
     if not DISCORD_WEBHOOK_URL:
         print("    [!] DISCORD_WEBHOOK_URL not set, skipping notification")
         return
