@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Xeno Modpack",
+  "version": "2.1",
+  "description": "Xeno Modpack",
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_title": "Xeno Modpack",
+    "default_icon": "icon.png"
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://mope.io/*",
+    "https://www.mope.io/*",
+    "https://v2.mope.io/*",
+    "https://beta-us.mope.io/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["index.js", "*.js", "packages/*.js"],
+      "matches": ["https://mope.io/*", "https://www.mope.io/*", "https://v2.mope.io/*", "https://beta-us.mope.io/*"]
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mope.io/*", "https://www.mope.io/*", "https://v2.mope.io/*", "https://beta-us.mope.io/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/index.js"
+      }
+    },
+    "condition": {
+      "urlFilter": "||mope.io/CkocsJ3X.js",
+      "resourceTypes": ["script"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||mope.io/index-DGbnPUNI.js",
+      "resourceTypes": ["script"]
+    }
+  }
+]
