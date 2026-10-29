@@ -12,6 +12,8 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
+
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -19,8 +21,6 @@ TARGET_URL = "https://mope.io/"
 STORAGE_DIR = Path(__file__).parent / "mope_scripts"
 CHECK_INTERVAL_SECONDS = 600
 REQUEST_TIMEOUT = 30
-WEBCRACK_TIMEOUT = 1800  
-NODE_MEMORY_MB = 8192    
 
 AUTO_PORT_SCRIPT = Path(__file__).parent / "engine_port.py"
 FULL_JS = Path(__file__).parent / "mope_full.js"
@@ -107,27 +107,7 @@ def extract_main_js_url(html: str, base_url: str) -> str | None:
     return best_url or candidates[0]
 
 
-def webcrack_command() -> list[str]:
-    exe = shutil.which("webcrack")
-    if exe:
-        return [exe]
-    npx = shutil.which("npx") or shutil.which("npx.cmd")
-    if not npx:
-        raise RuntimeError("Node.js not found. Please install Node LTS to use webcrack.")
-    return [npx, "-y", "webcrack@latest"]
 
-
-def run_webcrack(src_file: Path, out_dir: Path) -> None:
-    env = os.environ.copy()
-    env["NODE_OPTIONS"] = f"{env.get('NODE_OPTIONS', '')} --max-old-space-size={NODE_MEMORY_MB}".strip()
-    cmd = webcrack_command() + [str(src_file), "-o", str(out_dir), "-f"]
-    print(f"    webcrack: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=WEBCRACK_TIMEOUT, env=env)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"webcrack failed with code {proc.returncode}: "
-            f"{(proc.stderr or proc.stdout or '').strip()[:500]}"
-        )
 
 
 def pick_client_file(out_dir: Path) -> Path | None:
@@ -317,23 +297,19 @@ def process_script(url: str) -> str | None:
     digest = sha256_bytes(data)
     print(f"    Received {len(data):,} bytes, sha256 {digest[:16]}...")
 
+    # mope.io is Vite-minified, not obfuscated — inject directly into raw JS, no webcrack needed
     tmp_dir = Path(tempfile.mkdtemp(prefix="client_"))
     tmp_file = tmp_dir / filename
-    tmp_out = tmp_dir / "out"
     try:
         tmp_file.write_bytes(data)
-        print("    Running Webcrack (can take a minute or two)...")
         started = time.time()
-        run_webcrack(tmp_file, tmp_out)
-        elapsed = time.time() - started
 
-        if not tmp_out.exists() or not any(tmp_out.rglob("*.js")):
-            raise RuntimeError("Webcrack output was empty.")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        raw_js = out_dir / "deobfuscated.js"
+        shutil.copyfile(tmp_file, raw_js)
 
-        out_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(tmp_out), str(out_dir))
-        
         modded = run_auto_port(out_dir)
+        elapsed = time.time() - started
 
         files = sorted(p.relative_to(out_dir).as_posix() for p in out_dir.rglob("*.js"))
         (out_dir / "_meta.json").write_text(
@@ -343,13 +319,13 @@ def process_script(url: str) -> str | None:
                 "sha256_original": digest,
                 "size_original": len(data),
                 "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "webcrack_seconds": round(elapsed, 1),
+                "elapsed_seconds": round(elapsed, 1),
                 "files": files,
                 "modded_file": modded.name if modded else None,
             }, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        
-        print(f"    Done in {elapsed:.1f}s — {len(files)} file(s) in {out_dir}")
+
+        print(f"    Done in {elapsed:.1f}s — {out_dir}")
         return filename
     except Exception as e:
         print(f"[!] Processing failed for {filename}: {e}")
