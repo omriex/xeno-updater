@@ -34,6 +34,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add mope_scripts/ mope_full.js
+          git add mope_scripts/ || true
+          git add mope_full.js || true
+          git add extension/index.js || true
+          git add extension/rules.json || true
           git diff --staged --quiet || git commit -m "auto: new mope.io build"
-          git push
+          git push || true
