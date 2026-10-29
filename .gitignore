@@ -1,2 +1,3 @@
+extension/index.js
 mope_scripts/**/*.js
 !mope_scripts/**/_meta.json
