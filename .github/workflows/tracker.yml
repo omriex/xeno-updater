@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
+  
+ permissions:
+  contents: write
 
 jobs:
   track:
@@ -11,8 +14,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
