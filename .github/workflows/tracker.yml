@@ -4,13 +4,13 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
-  
- permissions:
-  contents: write
 
 jobs:
   track:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -34,10 +34,9 @@ jobs:
       - name: Save state back to repo
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions[bot]@://github.com"
           git add mope_scripts/ || true
           git add mope_full.js || true
           git add extension/index.js || true
           git add extension/rules.json || true
-          git diff --staged --quiet || git commit -m "auto: new mope.io build"
-          git push || true
+          git diff --staged --quiet || (git commit -m "auto: new mope.io build" && git push)
