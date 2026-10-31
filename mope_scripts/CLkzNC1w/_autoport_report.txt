@@ -1,0 +1,9 @@
+=== AUTO-DETECT REPORT ===
+  Vite relative imports: Patched 1 file paths to absolute URLs (https://mope.io/...).
+  Game Object:           'Ro' (Failed to detect structurally, using fallback 'Ro')
+  OK all critical fields processed.
+==========================
+  Syntax validation passed successfully.
+
+Written: /home/runner/work/xeno-updater/xeno-updater/mope_scripts/CLkzNC1w/_autoport_tmp.js
+Mod initialized. Hotkeys handled via GUI in-game.

@@ -9,8 +9,10 @@
       }
     },
     "condition": {
-      "urlFilter": "||mope.io/CkocsJ3X.js",
-      "resourceTypes": ["script"]
+      "urlFilter": "||mope.io/CLkzNC1w.js",
+      "resourceTypes": [
+        "script"
+      ]
     }
   },
   {
@@ -21,7 +23,9 @@
     },
     "condition": {
       "urlFilter": "||mope.io/index-DGbnPUNI.js",
-      "resourceTypes": ["script"]
+      "resourceTypes": [
+        "script"
+      ]
     }
   }
 ]
